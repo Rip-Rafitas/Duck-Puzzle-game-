@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <title>Duck Tomb Maze - FIX</title>
+    <style>
+        body { margin: 0; background: #0b031a; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: 'Courier New', monospace; overflow: hidden; }
+        #gameContainer { text-align: center; }
+        #hud { display: flex; justify-content: space-between; color: white; font-size: 22px; font-weight: bold; margin-bottom: 12px; text-shadow: 2px 2px #000; }
+        canvas { border: 6px solid #221105; box-shadow: 0px 15px 35px rgba(0,0,0,0.6); image-rendering: pixelated; }
+        .ins { color: white; margin-top: 12px; font-size: 14px; font-weight: bold; }
+    </style>
+</head>
+<body>
+<div id="gameContainer">
+    <div id="hud">
+        <div>💰 MOEDAS: <span id="cCount">0</span></div>
+        <div>🏞️ ZONA: <span id="zName">TERRA</span></div>
+    </div>
+    <canvas id="gameCanvas" width="480" height="480"></canvas>
+    <div class="ins">🚀 CORRIGIDO! Podes subir e descer sem qualquer bug!</div>
+</div>
+<script>
+const canvas = document.getElementById("gameCanvas"), ctx = canvas.getContext("2d");
+const cCountEl = document.getElementById("cCount"), zNameEl = document.getElementById("zName");
+const TILE = 40, SCALE = 4, S_ROWS = 12, COLS = 12, SECTIONS = 3, T_ROWS = 36;
+let coins = 0, map = [], particles = [], stars = [], camY = 0, targetCamY = 0, anim = false, sec = 0;
+
+for(let i=0; i<30; i++) stars.push({ x: Math.random()*480, y: Math.random()*480 + 960 });
+
+const themes = [
+    { name: "TERRA 🌍", bg: "#5bc0be", wM: "#5c3317", wD: "#3d200e", wL: "#7a4724", g: "#4ca64c", gD: "#2d662d" },
+    { name: "CÉU ☁️", bg: "#87ceeb", wM: "#d1d5db", wD: "#9ca3af", wL: "#f3f4f6", g: "#ffffff", gD: "#cbd5e1" },
+    { name: "ESPAÇO 🌌", bg: "#0b031a", wM: "#4b0082", wD: "#270044", wL: "#7b1fa2", g: "#00ffff", gD: "#00b3b3" }
+];
+
+function buildMap() {
+    map = [];
+    for (let r = 0; r < T_ROWS; r++) {
+        map[r] = [];
+        let lRow = r % S_ROWS;
+        for (let c = 0; c < COLS; c++) {
+            if (c === 0 || c === COLS - 1 || r === 0 || r === T_ROWS - 1) map[r][c] = 1;
+            else if (lRow === 0 || lRow === S_ROWS - 1) map[r][c] = (c === 5 || c === 6) ? 0 : 1;
+            else map[r][c] = (Math.random() < 0.2 && (r % 2 === 0 || c % 2 === 0)) ? 1 : 0;
+        }
+    }
+    map[1][1] = map[1][2] = map[2][1] = 0;
+    map[10][5] = map[22][5] = 3; map[34][5] = 4;
+}
+
+let p = { x: 1, y: 1, px: 40, py: 40, dx: 0, dy: 0, mv: false, spd: 8 };
+
+function drawWall(x, y, t, r, c) {
+    ctx.fillStyle = t.wM; ctx.fillRect(x, y, TILE, TILE);
+    for (let py = 0; py < TILE; py += SCALE) {
+        for (let px = 0; px < TILE; px += SCALE) {
+            if (Math.floor(r / S_ROWS) === 0) {
+                let n = Math.sin(x + px * 3) * Math.cos(y + py * 5);
+                if (n > 0.4) { ctx.fillStyle = t.wD; ctx.fillRect(x + px, y + py, SCALE, SCALE); }
+                else if (n < -0.5) { ctx.fillStyle = t.wL; ctx.fillRect(x + px, y + py, SCALE, SCALE); }
+            } else {
+                if (py === 0 || py === TILE - SCALE || (px === 0 && py < 20) || (px === 20 && py >= 20)) {
+                    ctx.fillStyle = t.wD; ctx.fillRect(x + px, y + py, SCALE, SCALE);
+                } else if (px === TILE - SCALE || py === 4) {
+                    ctx.fillStyle = t.wL; ctx.fillRect(x + px, y + py, SCALE, SCALE);
+                }
+            }
+        }
+    }
+    if (r > 0 && map[r-1][c] !== 1) {
+        ctx.fillStyle = t.g; ctx.fillRect(x, y, TILE, 8);
+        ctx.fillStyle = t.gD; ctx.fillRect(x, y + 8, TILE, 4);
+    }
+}
+
+function draw() {
+    for(let s=0; s<SECTIONS; s++) {
+        ctx.fillStyle = themes[s].bg; ctx.fillRect(0, (s * S_ROWS * TILE) - camY, canvas.width, S_ROWS * TILE);
+    }
+    ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
+    stars.forEach(s => { if(Math.random() > 0.1) ctx.fillRect(s.x, s.y - camY, SCALE, SCALE); });
+
+    for (let r = 0; r < T_ROWS; r++) {
+        let t = themes[Math.floor(r / S_ROWS)];
+        for (let c = 0; c < COLS; c++) {
+            let x = c * TILE, y = (r * TILE) - camY;
+            if (y < -TILE || y > canvas.height) continue;
+            if (map[r][c] === 1) drawWall(x, y, t, r, c);
+            else if (map[r][c] === 0) {
+                ctx.fillStyle = "#ffd700"; ctx.fillRect(x + 16, y + 16, 8, 8);
+                ctx.fillStyle = "#b59500"; ctx.fillRect(x + 16, y + 20, 4, 4);
+            } else if (map[r][c] === 3 || map[r][c] === 4) {
+                ctx.fillStyle = (Math.floor(Date.now() / 150) % 2 === 0) ? "#8a2be2" : "#da70d6";
+                ctx.fillRect(x + 4, y + 4, 32, 32); ctx.fillStyle = "#fff"; ctx.fillRect(x + 12, y + 12, 16, 16);
+            }
+        }
+    }
+    particles.forEach((pt, i) => {
+        ctx.globalAlpha = pt.a; ctx.fillStyle = pt.c; ctx.fillRect(pt.x - 4, pt.y - 4 - camY, 8, 8);
+        pt.a -= 0.08; if (pt.a <= 0) particles.splice(i, 1);
+    });
+    ctx.globalAlpha = 1.0;
+    
+    let ax = p.px, ay = p.py - camY;
+    ctx.fillStyle = "#ffcc00"; ctx.fillRect(ax + 8, ay + 8, 24, 24); ctx.fillRect(ax + 12, ay + 4, 16, 4); ctx.fillRect(ax + 4, ay + 12, 4, 16);
+    ctx.fillStyle = "#e6b800"; ctx.fillRect(ax + 8, ay + 24, 16, 8);
+    ctx.fillStyle = "#ff4500"; ctx.fillRect(ax + 28, ay + 16, 8, 8);
+    ctx.fillStyle = "#000"; ctx.fillRect(ax + 20, ay + 12, 4, 4);
+}
+
+function update() {
+    if (anim) {
+        if (camY < targetCamY) {
+            camY += 10; p.py += 3;
+            if (camY >= targetCamY) { camY = targetCamY; anim = false; p.py = p.y * TILE; p.px = p.x * TILE; }
+        }
+        return;
+    }
+    if (p.mv) {
+        particles.push({ x: p.px + TILE/2, y: p.py + TILE/2, a: 1, c: themes[sec].g });
+        p.px += p.dx * p.spd; p.py += p.dy * p.spd;
+        
+        if (p.px % TILE === 0 && p.py % TILE === 0) {
+            p.x = Math.round(p.px / TILE); p.y = Math.round(p.py / TILE);
+            
+            if (map[p.y][p.x] === 0) { map[p.y][p.x] = 2; coins++; cCountEl.innerText = coins; }
+            if (map[p.y][p.x] === 3) {
+                p.mv = false; p.dx = p.dy = 0; sec++; zNameEl.innerText = themes[sec].name;
+                targetCamY = sec * S_ROWS * TILE; anim = true; p.y += 2; return;
+            }
+            if (map[p.y][p.x] === 4) {
+                sec = 0; zNameEl.innerText = themes[0].name; targetCamY = camY = 0;
+                p.x = p.y = 1; p.px = p.py = 40; p.mv = false; p.dx = p.dy = 0; buildMap(); return;
+            }
+            
+            // Verificação de colisão ultra precisa para qualquer direção
+            let nX = p.x + p.dx, nY = p.y + p.dy;
+            if (nY < 0 || nY >= T_ROWS || nX < 0 || nX >= COLS || map[nY][nX] === 1) { 
+                p.mv = false; p.dx = p.dy = 0; 
+            }
+        }
+    }
+}
+
+window.addEventListener("keydown", (e) => {
+    if (p.mv || anim) return;
+    let kx = 0, ky = 0;
+    if (e.key === "ArrowUp" || e.key === "w") ky = -1; 
+    else if (e.key === "ArrowDown" || e.key === "s") ky = 1;
+    else if (e.key === "ArrowLeft" || e.key === "a") kx = -1; 
+    else if (e.key === "ArrowRight" || e.key === "d") kx = 1;
+    
+    if (kx !== 0 || ky !== 0) {
+        let nX = p.x + kx, nY = p.y + ky;
+        if (nY >= 0 && nY < T_ROWS && nX >= 0 && nX < COLS && map[nY][nX] !== 1) { 
+            p.dx = kx; p.dy = ky; p.mv = true; 
+        }
+    }
+});
+
+function loop() { update(); draw(); requestAnimationFrame(loop); }
+buildMap(); loop();
+</script>
+</body>
+</html>
